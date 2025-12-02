@@ -232,11 +232,11 @@ GOOGLE_MAX_RETRIES=2
 </br>
 
 <p align="center">
-  <a href="CONTRIBUTOR.md" style="padding:10px 18px; background:#134686; color:white; text-decoration:none; border-radius:8px; font-weight:600;">
+  <a href="CONTRIBUTING.md" style="padding:10px 18px; background:#134686; color:white; text-decoration:none; border-radius:8px; font-weight:600;">
     🇰🇷 한국어 매뉴얼
   </a>
   &nbsp;&nbsp;
-  <a href="CONTRIBUTOR.en.md" style="padding:10px 18px; background:#1f2937; color:white; text-decoration:none; border-radius:8px; font-weight:600;">
+  <a href="CONTRIBUTING.en.md" style="padding:10px 18px; background:#1f2937; color:white; text-decoration:none; border-radius:8px; font-weight:600;">
     🇺🇸 English Guide
   </a>
 </p>
