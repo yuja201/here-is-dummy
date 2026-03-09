@@ -98,7 +98,6 @@ export async function* generateFakeStream({
   if (!fakerPath) {
     throw new Error(`No faker mapping for domain: ${domainName}`)
   }
-
   const [category, method] = fakerPath.split('.') as [keyof Faker, string]
   const fakerCategory = faker[category]
   const fn = (fakerCategory as Record<string, unknown>)[method]
@@ -122,11 +121,35 @@ export async function* generateFakeStream({
         })
       )
     }
+
+    // 날짜 처리
+    if (/DATE|DATETIME|TIMESTAMP/i.test(sqlType)) {
+      const raw = (fn as () => Date | string)()
+
+      if (raw instanceof Date) {
+        const year = raw.getFullYear()
+        const month = String(raw.getMonth() + 1).padStart(2, '0')
+        const day = String(raw.getDate()).padStart(2, '0')
+        const hours = String(raw.getHours()).padStart(2, '0')
+        const minutes = String(raw.getMinutes()).padStart(2, '0')
+        const seconds = String(raw.getSeconds()).padStart(2, '0')
+
+        if (/^DATE$/i.test(sqlType)) {
+          return `${year}-${month}-${day}`
+        }
+
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+      }
+
+      return String(raw)
+    }
+
     // 문자열 길이 제약 적용
     if (typeof maxLength === 'number') {
       const raw = String((fn as () => string)())
       return raw.slice(0, maxLength)
     }
+
     // 제약조건 없음
     return String((fn as () => string | number)())
   }

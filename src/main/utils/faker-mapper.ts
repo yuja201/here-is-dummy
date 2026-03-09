@@ -11,7 +11,7 @@ export const fakerMapper: Record<string, string> = {
 
   이메일: 'internet.email',
   전화번호: 'phone.number',
-  사용자명: 'internet.userName',
+  사용자명: 'internet.username',
   도메인: 'internet.domainName',
 
   회사명: 'company.name',
@@ -55,7 +55,7 @@ export const fakerMapper: Record<string, string> = {
 
   색상명: 'color.human',
   'RGB 값': 'color.rgb',
-  'HEX 코드': 'color.hex',
+  'HEX 코드': 'color.rgb',
   '이미지 URL': 'image.url',
 
   '음악 장르': 'music.genre',
