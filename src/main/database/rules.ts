@@ -99,7 +99,7 @@ export function createRule(data: RuleInput): Rule {
     data.domain,
     data.model_id ?? null,
     data.prompt ?? null,
-    data.locale ?? null,
+    data.locale ?? 'en',
     now,
     now
   )
