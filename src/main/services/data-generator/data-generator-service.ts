@@ -1,7 +1,6 @@
 ﻿import path from 'node:path'
 import os from 'node:os'
-import { spawn } from 'node:child_process'
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, utilityProcess } from 'electron'
 import type { WorkerTask, WorkerResult, GenerateRequest, GenerationResult } from '@shared/types'
 import { getDatabaseByProjectId } from '../../database/databases'
 import { getDBMSById } from '../../database/dbms'
@@ -83,108 +82,89 @@ export async function runDataGenerator(
       : undefined
 
   const queue = [...tables]
-  const running = new Set<ReturnType<typeof spawn>>()
+  const running = new Set<ReturnType<typeof utilityProcess.fork>>()
   const results: WorkerResult[] = []
   const cacheRoot = getFileCacheRoot()
 
   const startNext = async (): Promise<void> => {
-    if (queue.length === 0) return
-    const table = queue.shift()!
+    try {
+      if (queue.length === 0) return
+      const table = queue.shift()!
 
-    const task: WorkerTask = {
-      projectId,
-      dbType: dbTypeKey,
-      table,
-      schema,
-      database: databaseInfo,
-      rules,
-      mode,
-      connection: connectionInfo,
-      skipInvalidRows: payload.skipInvalidRows ?? true
-    }
-    const isPackaged = app.isPackaged
-    const baseDir = isPackaged
-      ? fs.existsSync(path.join(process.resourcesPath, 'app.asar.unpacked'))
-        ? path.join(process.resourcesPath, 'app.asar.unpacked')
-        : path.join(process.resourcesPath, 'app')
-      : app.getAppPath()
-
-    const workerPath = path.join(baseDir, 'out', 'main', 'worker-runner.js')
-
-    const nodeBinary = path.join(process.resourcesPath, 'bin', 'node.exe')
-
-    const child = spawn(nodeBinary, [workerPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        TASK: JSON.stringify(task),
-        HERESDUMMY_CACHE_DIR: cacheRoot
+      const task: WorkerTask = {
+        projectId,
+        dbType: dbTypeKey,
+        table,
+        schema,
+        database: databaseInfo,
+        rules,
+        mode,
+        connection: connectionInfo,
+        skipInvalidRows: payload.skipInvalidRows ?? true
       }
-    })
-    running.add(child)
+      const isPackaged = app.isPackaged
+      const baseDir = isPackaged
+        ? fs.existsSync(path.join(process.resourcesPath, 'app.asar.unpacked'))
+          ? path.join(process.resourcesPath, 'app.asar.unpacked')
+          : path.join(process.resourcesPath, 'app')
+        : app.getAppPath()
 
-    let stdout = ''
-    let stdoutBuffer = ''
-    let stderr = ''
+      const workerPath = path.join(baseDir, 'out', 'main', 'worker-runner.js')
 
-    child.stdout.on('data', (data) => {
-      const chunk = data.toString()
-      process.stdout.write(chunk)
-      stdout += chunk
+      const child = utilityProcess.fork(workerPath, [], {
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          HERESDUMMY_CACHE_DIR: cacheRoot
+        },
+        serviceName: 'Data Generator Worker'
+      })
+      running.add(child)
 
-      stdoutBuffer += chunk
-      let newlineIndex: number
-      while ((newlineIndex = stdoutBuffer.indexOf('\n')) !== -1) {
-        const line = stdoutBuffer.slice(0, newlineIndex).trim()
-        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1)
-        if (!line) continue
+      child.postMessage({
+        type: 'start',
+        task
+      })
 
-        if (line.startsWith('{') && line.endsWith('}')) {
-          try {
-            const msg = JSON.parse(line)
-            if (msg.type) {
-              mainWindow.webContents.send('data-generator:progress', msg)
-            }
-          } catch (err) {
-            void err
+      let stderr = ''
+
+      // 완료 행 수 받아서 진행 상황 프론트로 보내기
+      child.on('message', (data) => {
+        if (data.type) {
+          if (data.type === 'worker-result') {
+            results.push(data.result)
+          } else {
+            mainWindow.webContents.send('data-generator:progress', data)
           }
         }
-      }
-    })
+      })
 
-    child.stderr.on('data', (data) => {
-      stderr += data.toString()
-      console.error('[worker] stderr:', data.toString())
-    })
+      child.stderr?.on('data', (data) => {
+        stderr += data.toString()
+        console.error('[worker] stderr:', data.toString())
+      })
 
-    child.on('close', (code) => {
-      running.delete(child)
-      if (code === 0) {
-        // stdout 안에서 success 포함 JSON 객체 전부 추출
-        const matches = stdout.match(/\{[^}]*"success"[^}]*\}/g)
-
-        if (matches && matches.length > 0) {
-          // 가장 마지막 JSON이 최종 결과 JSON
-          const finalJson = matches[matches.length - 1]
-          results.push(JSON.parse(finalJson))
-        } else {
+      child.on('exit', (code) => {
+        running.delete(child)
+        if (code !== 0) {
           results.push({
             success: false,
             tableName: table.tableName,
             sqlPath: '',
-            error: 'Worker finished without a valid result JSON.'
+            error: stderr || `Worker exited with code ${code}`
           })
         }
-      } else {
-        results.push({
-          success: false,
-          tableName: table.tableName,
-          sqlPath: '',
-          error: stderr || `Worker exited with code ${code}`
-        })
-      }
-      startNext()
-    })
+        startNext()
+      })
+    } catch (err) {
+      logger.error('startNext 실패', err)
+      results.push({
+        success: false,
+        tableName: 'unknown',
+        sqlPath: '',
+        error: (err as Error).message
+      })
+    }
   }
 
   for (let i = 0; i < Math.min(MAX_PARALLEL, queue.length); i++) {
