@@ -21,7 +21,7 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
-    "postpack": "node scripts/fuses.mjs"
+    "postpack": "node scripts/fuse.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
