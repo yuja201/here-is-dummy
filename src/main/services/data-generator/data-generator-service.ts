@@ -164,6 +164,7 @@ export async function runDataGenerator(
         sqlPath: '',
         error: (err as Error).message
       })
+      startNext()
     }
   }
 
