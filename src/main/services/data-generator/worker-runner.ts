@@ -512,12 +512,10 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
                 failedOnThisChunk++
 
                 // UI-friendly message only
-                process.stdout.write(
-                  JSON.stringify({
-                    type: 'row-error',
-                    tableName
-                  }) + '\n'
-                )
+                process.parentPort.postMessage({
+                  type: 'row-error',
+                  tableName
+                })
 
                 // skipInvalidRows === false → 즉시 중단
                 if (task.skipInvalidRows === false) {
@@ -531,14 +529,12 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
         totalProcessed += successOnThisChunk // 성공한 row만 증가
         totalFailed += failedOnThisChunk // fallback에서 실패한 row
 
-        process.stdout.write(
-          JSON.stringify({
-            type: 'row-delta',
-            tableName,
-            success: successOnThisChunk,
-            fail: failedOnThisChunk
-          }) + '\n'
-        )
+        process.parentPort.postMessage({
+          type: 'row-delta',
+          tableName,
+          success: successOnThisChunk,
+          fail: failedOnThisChunk
+        })
 
         await fs.promises.appendFile(sqlPath, bulkSQL + '\n', 'utf8')
       }
@@ -549,26 +545,22 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
       const progressPercent =
         chunkIdx + 1 === numChunks ? 100 : Math.floor((chunkEnd / recordCnt) * 100)
 
-      process.stdout.write(
-        JSON.stringify({
-          type: 'row-progress',
-          tableName,
-          progress: progressPercent
-        }) + '\n'
-      )
+      process.parentPort.postMessage({
+        type: 'row-progress',
+        tableName,
+        progress: progressPercent
+      })
 
       await new Promise((res) => setTimeout(res, 100))
 
       if (chunkEnd === recordCnt) {
         columns.forEach((col) => {
-          process.stdout.write(
-            JSON.stringify({
-              type: 'column-progress',
-              tableName,
-              columnName: col.columnName,
-              progress: 100
-            }) + '\n'
-          )
+          process.parentPort.postMessage({
+            type: 'column-progress',
+            tableName,
+            columnName: col.columnName,
+            progress: 100
+          })
         })
       }
     }
@@ -584,15 +576,13 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
       directContext = null
     }
 
-    process.stdout.write(
-      JSON.stringify({
-        type: 'table-complete',
-        tableName,
-        totalRows: recordCnt,
-        successRows: totalProcessed,
-        failedRows: totalFailed
-      }) + '\n'
-    )
+    process.parentPort.postMessage({
+      type: 'table-complete',
+      tableName,
+      totalRows: recordCnt,
+      successRows: totalProcessed,
+      failedRows: totalFailed
+    })
 
     const result: WorkerResult = {
       tableName,
@@ -600,7 +590,7 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
       success: true,
       directInserted: directMode ? true : undefined
     }
-    console.log('\n' + JSON.stringify(result) + '\n')
+    process.parentPort.postMessage({ type: 'worker-result', result: result })
     return result
   } catch (err) {
     if (directContext) {
@@ -616,33 +606,41 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
       error: (err as Error).message
     }
     logger.error('worker-runner error:', err)
-    console.log(JSON.stringify(result))
+    process.parentPort.postMessage({ type: 'worker-result', result: result })
     return result
   }
 }
 
 async function main(): Promise<void> {
-  const taskEnv = process.env.TASK
-  if (!taskEnv) {
-    logger.error('TASK environment variable is missing.')
-    process.exit(1)
-  }
+  process.parentPort?.once('message', async (event) => {
+    try {
+      const data = event.data
 
-  const task = JSON.parse(taskEnv)
-  const result = await runWorker(task)
+      if (!data || typeof data !== 'object' || data.type !== 'start') {
+        logger.error('Invalid start message')
+        process.exit(1)
+      }
 
-  try {
-    const fd = await fs.promises.open(result.sqlPath, 'r+')
-    await fd.sync()
-    await fd.close()
-    logger.info(`[FLUSH] ${result.tableName} flush complete`)
-  } catch (e) {
-    logger.warn('fsync failed:', e)
-  }
+      const task = data.task as WorkerTask
+      const result = await runWorker(task)
 
-  await new Promise((res) => setTimeout(res, 500))
+      try {
+        const fd = await fs.promises.open(result.sqlPath, 'r+')
+        await fd.sync()
+        await fd.close()
+        logger.info(`[FLUSH] ${result.tableName} flush complete`)
+      } catch (e) {
+        logger.warn('fsync failed:', e)
+      }
 
-  process.exit(result.success ? 0 : 1)
+      await new Promise((res) => setTimeout(res, 500))
+
+      process.exit(result.success ? 0 : 1)
+    } catch (err) {
+      logger.error('worker main error: ', err)
+      process.exit(1)
+    }
+  })
 }
 
 main()
