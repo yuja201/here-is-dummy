@@ -8,6 +8,8 @@ const LOCALE_FAKERS = {
   ko: fakerKO
 } as const
 
+type FakerOptions = { min: number; max: number } | Record<string, unknown> | undefined
+
 /**
  * Faker 생성 요청 파라미터
  */
@@ -98,9 +100,22 @@ export async function* generateFakeStream({
   if (!fakerPath) {
     throw new Error(`No faker mapping for domain: ${domainName}`)
   }
-  const [category, method] = fakerPath.split('.') as [keyof Faker, string]
+  const [category, method, optionName, optionValue] = fakerPath.split('.') as [
+    keyof Faker,
+    string,
+    string?,
+    string?
+  ]
   const fakerCategory = faker[category]
   const fn = (fakerCategory as Record<string, unknown>)[method]
+  let opts: FakerOptions = undefined
+
+  if (optionName && optionValue) {
+    const parsedValue = Number(optionValue)
+    opts = {
+      [optionName]: Number.isNaN(parsedValue) ? optionValue : parsedValue
+    }
+  }
 
   if (typeof fn !== 'function') {
     throw new Error(`❌ Invalid faker path: ${fakerPath}`)
@@ -108,24 +123,19 @@ export async function* generateFakeStream({
 
   // 단일 값을 생성하는 헬퍼 함수
   const generateSingleValue = (): string => {
-    // 숫자 범위 제약 적용
+    // 숫자 범위 제약
     if (
       typeof min === 'number' &&
       typeof max === 'number' &&
       /INT|DECIMAL|NUMERIC|FLOAT|DOUBLE/i.test(sqlType)
     ) {
-      return String(
-        (fn as (opts: { min: number; max: number }) => number)({
-          min,
-          max
-        })
-      )
+      opts = { min, max }
     }
+
+    const raw = opts ? fn(opts) : fn()
 
     // 날짜 처리
     if (/DATE|DATETIME|TIMESTAMP/i.test(sqlType)) {
-      const raw = (fn as () => Date | string)()
-
       if (raw instanceof Date) {
         const year = raw.getFullYear()
         const month = String(raw.getMonth() + 1).padStart(2, '0')
@@ -144,14 +154,12 @@ export async function* generateFakeStream({
       return String(raw)
     }
 
-    // 문자열 길이 제약 적용
+    // 문자열 길이
     if (typeof maxLength === 'number') {
-      const raw = String((fn as () => string)())
-      return raw.slice(0, maxLength)
+      return String(raw).slice(0, maxLength)
     }
 
-    // 제약조건 없음
-    return String((fn as () => string | number)())
+    return String(raw)
   }
 
   // 고유값 보장이 필요 없는 경우

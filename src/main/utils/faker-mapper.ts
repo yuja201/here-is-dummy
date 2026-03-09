@@ -54,8 +54,8 @@ export const fakerMapper: Record<string, string> = {
   단위: 'science.unit',
 
   색상명: 'color.human',
-  'RGB 값': 'color.rgb',
-  'HEX 코드': 'color.rgb',
+  'RGB 값': 'color.rgb.format.css',
+  'HEX 코드': 'color.rgb.casing.upper',
   '이미지 URL': 'image.url',
 
   '음악 장르': 'music.genre',
