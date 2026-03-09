@@ -86,11 +86,6 @@ const DummyInsertView: React.FC = () => {
         setProgress(message.progress)
       }
 
-      if (message.type === 'row-delta') {
-        setSuccessRows((prev) => prev + (message.successDelta ?? 0))
-        setFailedRows((prev) => prev + (message.failDelta ?? 0))
-      }
-
       if (message.type === 'table-complete' && message.tableName) {
         const hasFail = (message.failedRows ?? 0) > 0
 

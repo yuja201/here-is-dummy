@@ -44,7 +44,10 @@ export async function runDataGenerator(
   const schema = await fetchSchema(projectId)
 
   const ruleIds = new Set<number>()
+  let totalRows = 0
+  let progressRows = 0
   for (const table of tables) {
+    totalRows += table.recordCnt
     for (const column of table.columns) {
       if (
         (column.dataSource === 'FAKER' || column.dataSource === 'AI') &&
@@ -133,6 +136,11 @@ export async function runDataGenerator(
         if (data.type) {
           if (data.type === 'worker-result') {
             results.push(data.result)
+          } else if (data.type === 'row-progress') {
+            progressRows += data.progress
+            const progress = Math.floor((progressRows / totalRows) * 100)
+            data.progress = progress
+            mainWindow.webContents.send('data-generator:progress', data)
           } else {
             mainWindow.webContents.send('data-generator:progress', data)
           }
