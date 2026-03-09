@@ -142,18 +142,13 @@ export async function* generateFakeStream({
     // 날짜 처리
     if (/DATE|DATETIME|TIMESTAMP/i.test(sqlType)) {
       if (raw instanceof Date) {
-        const year = raw.getFullYear()
-        const month = String(raw.getMonth() + 1).padStart(2, '0')
-        const day = String(raw.getDate()).padStart(2, '0')
-        const hours = String(raw.getHours()).padStart(2, '0')
-        const minutes = String(raw.getMinutes()).padStart(2, '0')
-        const seconds = String(raw.getSeconds()).padStart(2, '0')
+        const iso = raw.toISOString()
 
         if (/^DATE$/i.test(sqlType)) {
-          return `${year}-${month}-${day}`
+          return iso.slice(0, 10)
         }
 
-        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+        return iso.slice(0, 19).replace('T', ' ')
       }
 
       return String(raw)
