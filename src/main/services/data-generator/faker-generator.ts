@@ -107,7 +107,17 @@ export async function* generateFakeStream({
     string?
   ]
   const fakerCategory = faker[category]
+
+  if (!fakerCategory) {
+    throw new Error(`❌ Invalid faker path: ${fakerPath}`)
+  }
+
   const fn = (fakerCategory as Record<string, unknown>)[method]
+
+  if (typeof fn !== 'function') {
+    throw new Error(`❌ Invalid faker path: ${fakerPath}`)
+  }
+
   let opts: FakerOptions = undefined
 
   if (optionName && optionValue) {
@@ -115,10 +125,6 @@ export async function* generateFakeStream({
     opts = {
       [optionName]: Number.isNaN(parsedValue) ? optionValue : parsedValue
     }
-  }
-
-  if (typeof fn !== 'function') {
-    throw new Error(`❌ Invalid faker path: ${fakerPath}`)
   }
 
   // 단일 값을 생성하는 헬퍼 함수
