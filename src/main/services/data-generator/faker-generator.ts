@@ -8,7 +8,7 @@ const LOCALE_FAKERS = {
   ko: fakerKO
 } as const
 
-type FakerOptions = { min: number; max: number } | Record<string, unknown> | undefined
+type FakerOptions = Record<string, unknown> | undefined
 
 /**
  * Faker 생성 요청 파라미터
@@ -129,16 +129,15 @@ export async function* generateFakeStream({
 
   // 단일 값을 생성하는 헬퍼 함수
   const generateSingleValue = (): string => {
+    const callOpts: Record<string, unknown> = { ...(opts ?? {}) }
+
     // 숫자 범위 제약
-    if (
-      typeof min === 'number' &&
-      typeof max === 'number' &&
-      /INT|DECIMAL|NUMERIC|FLOAT|DOUBLE/i.test(sqlType)
-    ) {
-      opts = { min, max }
+    if (/INT|DECIMAL|NUMERIC|FLOAT|DOUBLE/i.test(sqlType)) {
+      if (typeof min === 'number') callOpts.min = min
+      if (typeof max === 'number') callOpts.max = max
     }
 
-    const raw = opts ? fn(opts) : fn()
+    const raw = Object.keys(callOpts).length > 0 ? fn(callOpts) : fn()
 
     // 날짜 처리
     if (/DATE|DATETIME|TIMESTAMP/i.test(sqlType)) {
