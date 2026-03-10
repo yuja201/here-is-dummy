@@ -26,7 +26,10 @@ const logger = createLogger('worker-runner')
 const INVALID = { __invalid: true } as const
 type CellValue = string | typeof INVALID
 
-// 컬럼별 스트림 생성 함수
+/**
+ * 컬럼 설정에 따라 데이터 생성 스트림을 반환
+ * (FAKER, AI, FILE, FIXED, REFERENCE)
+ */
 function createColumnStream(
   col: {
     columnName: string
@@ -146,7 +149,9 @@ function createColumnStream(
   }
 }
 
-// AI 컬럼과 non-AI 컬럼 분리
+/**
+ * 컬럼 목록을 AI / non-AI 인덱스로 분리
+ */
 function separateColumnsByType(columns: { dataSource: DataSourceType }[]): {
   aiColumns: number[]
   nonAiColumns: number[]
@@ -280,6 +285,9 @@ type DirectContext = {
   close: () => Promise<void>
 }
 
+/**
+ * DIRECT_DB 모드에서 사용할 DB 연결 컨텍스트 생성
+ */
 async function createDirectContext(
   dbType: keyof typeof DBMS_MAP,
   connection: NonNullable<WorkerTask['connection']>
@@ -322,6 +330,12 @@ async function createDirectContext(
   }
 }
 
+/**
+ * 테이블 단위 데이터 생성 Worker
+ * - 컬럼 스트림 생성
+ * - 행 조립
+ * - SQL 파일 생성 또는 DB 삽입
+ */
 async function runWorker(task: WorkerTask): Promise<WorkerResult> {
   const { table, dbType, mode, connection } = task
   const { tableName, recordCnt, columns } = table
@@ -347,7 +361,6 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
     }
 
     logger.info(`[${tableName}] 시작: ${recordCnt.toLocaleString()}행, ${columns.length}컬럼`)
-    const startTime = Date.now()
     let totalProcessed = 0
     const numChunks = Math.max(1, Math.ceil(recordCnt / CHUNK_SIZE))
 
@@ -359,22 +372,16 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
         continue
       }
 
-      logger.info(`\n[${tableName}] 청크 ${chunkIdx + 1}/${numChunks} 처리 중 (${chunkSize}행)`)
-      const chunkStartTime = Date.now()
-
       const columnStreams = columns.map((col) => createColumnStream(col, task, chunkSize))
       const { aiColumns, nonAiColumns } = separateColumnsByType(columns)
       const chunkColumnValues: (string | typeof INVALID)[][] = new Array(columns.length)
 
       // === Non-AI 컬럼 처리 (예외 처리 일관화) ===
       if (nonAiColumns.length > 0) {
-        logger.info(`[${tableName}] Non-AI 컬럼 동시 처리:`)
         const nonAiResults = await Promise.all(
           nonAiColumns.map(async (colIdx) => {
             const col = columns[colIdx]
             const stream = columnStreams[colIdx]
-            const colStart = Date.now()
-            logger.info(`  ▶ [${col.columnName}] 처리 (${col.dataSource})`)
 
             const values: (string | typeof INVALID)[] = []
             for (let i = 0; i < chunkSize; i++) {
@@ -394,9 +401,6 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
               }
             }
 
-            const colDuration = ((Date.now() - colStart) / 1000).toFixed(2)
-            logger.info(`  ✓ [${col.columnName}] 완료 (${colDuration}초)`)
-
             return { colIdx, values }
           })
         )
@@ -408,8 +412,6 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
 
       // === AI 컬럼 처리 (동시 MAX_AI_CONCURRENT개, 예외 처리 통일) ===
       if (aiColumns.length > 0) {
-        logger.info(`[${tableName}] AI 컬럼 처리 (동시 ${MAX_AI_CONCURRENT}개):`)
-
         for (let i = 0; i < aiColumns.length; i += MAX_AI_CONCURRENT) {
           const batch = aiColumns.slice(i, i + MAX_AI_CONCURRENT)
 
@@ -417,8 +419,6 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
             batch.map(async (colIdx) => {
               const col = columns[colIdx]
               const stream = columnStreams[colIdx]
-              const colStart = Date.now()
-              logger.info(`  ▶ [${col.columnName}] 처리 (${col.dataSource})`)
 
               const values: (string | typeof INVALID)[] = []
               for (let j = 0; j < chunkSize; j++) {
@@ -438,9 +438,6 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
                 }
               }
 
-              const colDuration = ((Date.now() - colStart) / 1000).toFixed(2)
-              logger.info(`  ✓ [${col.columnName}] 완료 (${colDuration}초)`)
-
               return { colIdx, values }
             })
           )
@@ -450,7 +447,6 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
           })
 
           if (i + MAX_AI_CONCURRENT < aiColumns.length) {
-            logger.info(`  … 다음 AI 컬럼 대기 (1초)...`)
             await new Promise((res) => setTimeout(res, 1000))
           }
         }
@@ -477,13 +473,11 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
               `[행 변환 오류] ${tableName} ${totalProcessed + rowIdx + 1}행 변환 실패`
             )
           }
+        } else if (!directMode) {
+          totalProcessed++
         }
 
         rows.push(`(${rowValues.join(', ')})`)
-
-        if (!directMode) {
-          totalProcessed++
-        }
       }
 
       // === DIRECT_DB bulk insert + fallback ===
@@ -529,46 +523,17 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
         totalProcessed += successOnThisChunk // 성공한 row만 증가
         totalFailed += failedOnThisChunk // fallback에서 실패한 row
 
-        process.parentPort.postMessage({
-          type: 'row-delta',
-          tableName,
-          success: successOnThisChunk,
-          fail: failedOnThisChunk
-        })
-
         await fs.promises.appendFile(sqlPath, bulkSQL + '\n', 'utf8')
       }
-
-      const chunkDuration = ((Date.now() - chunkStartTime) / 1000).toFixed(2)
-      logger.info(`\n[${tableName}] 청크 ${chunkIdx + 1} 완료 (${chunkDuration}초)`)
-
-      const progressPercent =
-        chunkIdx + 1 === numChunks ? 100 : Math.floor((chunkEnd / recordCnt) * 100)
 
       process.parentPort.postMessage({
         type: 'row-progress',
         tableName,
-        progress: progressPercent
+        progress: chunkSize
       })
 
       await new Promise((res) => setTimeout(res, 100))
-
-      if (chunkEnd === recordCnt) {
-        columns.forEach((col) => {
-          process.parentPort.postMessage({
-            type: 'column-progress',
-            tableName,
-            columnName: col.columnName,
-            progress: 100
-          })
-        })
-      }
     }
-
-    const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2)
-    logger.info(
-      `\n[${tableName}] 전체 완료 (${totalDuration}초, ${totalProcessed.toLocaleString()}행)`
-    )
 
     if (directContext) {
       await directContext.commit()

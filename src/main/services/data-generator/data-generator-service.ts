@@ -15,6 +15,12 @@ import { createLogger } from '../../utils/logger'
 const logger = createLogger('data-generator-service')
 const MAX_PARALLEL = Math.max(1, Math.floor(os.cpus().length / 2))
 
+/**
+ * 데이터 생성 전체 흐름을 관리하는 메인 함수
+ * - Worker 실행
+ * - 진행률 전달
+ * - SQL ZIP 생성
+ */
 export async function runDataGenerator(
   payload: GenerateRequest,
   mainWindow: BrowserWindow
@@ -44,7 +50,10 @@ export async function runDataGenerator(
   const schema = await fetchSchema(projectId)
 
   const ruleIds = new Set<number>()
+  let totalRows = 0
+  let progressRows = 0
   for (const table of tables) {
+    totalRows += table.recordCnt
     for (const column of table.columns) {
       if (
         (column.dataSource === 'FAKER' || column.dataSource === 'AI') &&
@@ -55,6 +64,13 @@ export async function runDataGenerator(
       }
     }
   }
+
+  if (totalRows === 0) {
+    throw new Error('Total row count is 0. No data to generate.')
+  }
+
+  let successRows = 0
+  let failedRows = 0
 
   const rules = Array.from(ruleIds)
     .map((id) => getRuleById(id))
@@ -86,6 +102,9 @@ export async function runDataGenerator(
   const results: WorkerResult[] = []
   const cacheRoot = getFileCacheRoot()
 
+  /**
+   * 다음 테이블 작업을 Worker로 실행
+   */
   const startNext = async (): Promise<void> => {
     try {
       if (queue.length === 0) return
@@ -133,6 +152,15 @@ export async function runDataGenerator(
         if (data.type) {
           if (data.type === 'worker-result') {
             results.push(data.result)
+          } else if (data.type === 'row-progress') {
+            progressRows += data.progress
+            const progress = Math.floor((progressRows / totalRows) * 100)
+            data.progress = progress
+            mainWindow.webContents.send('data-generator:progress', data)
+          } else if (data.type === 'table-complete') {
+            successRows += data.successRows
+            failedRows += data.failedRows
+            mainWindow.webContents.send('data-generator:progress', data)
           } else {
             mainWindow.webContents.send('data-generator:progress', data)
           }
@@ -218,7 +246,10 @@ export async function runDataGenerator(
   mainWindow.webContents.send('data-generator:progress', {
     type: 'all-complete',
     successCount: successResults.length,
-    failCount: failedResults.length
+    failCount: failedResults.length,
+    successRows: successRows,
+    failedRows: failedRows,
+    totalRows: totalRows
   })
 
   const allErrors = failedResults.map((r) => `[${r.tableName}] ${r.error ?? 'Unknown error'}`)
@@ -233,6 +264,9 @@ export async function runDataGenerator(
   }
 }
 
+/**
+ * DB URL에서 host와 port 추출
+ */
 function parseDatabaseUrl(rawUrl: string, dbType: SupportedDBMS): { host: string; port: number } {
   const defaultPort = dbType === 'mysql' ? 3306 : 5432
 
@@ -261,7 +295,9 @@ function parseDatabaseUrl(rawUrl: string, dbType: SupportedDBMS): { host: string
   }
 }
 
-// 재시도 기반 파일 삭제
+/**
+ * 파일 잠금 시 재시도하며 삭제
+ */
 async function deleteWithRetry(filePath: string, maxRetries = 3, delayMs = 500): Promise<void> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {

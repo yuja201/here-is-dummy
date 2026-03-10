@@ -86,21 +86,12 @@ const DummyInsertView: React.FC = () => {
         setProgress(message.progress)
       }
 
-      if (message.type === 'row-delta') {
-        setSuccessRows((prev) => prev + (message.successDelta ?? 0))
-        setFailedRows((prev) => prev + (message.failDelta ?? 0))
-      }
-
       if (message.type === 'table-complete' && message.tableName) {
         const hasFail = (message.failedRows ?? 0) > 0
 
-        setTotalRows((prev) => prev + (message.totalRows ?? 0))
-        setSuccessRows((prev) => prev + (message.successRows ?? 0))
-        setFailedRows((prev) => prev + (message.failedRows ?? 0))
-
         setTables((prev) =>
           prev.map((t) =>
-            t.name === message.tableName ? { ...t, status: hasFail ? 'warning' : 'success' } : t
+            t.name === message.tableName ? { ...t, status: hasFail ? 'failure' : 'success' } : t
           )
         )
       }
@@ -327,7 +318,7 @@ const DummyInsertView: React.FC = () => {
             </>
           ) : (
             <>
-              <p style={{ font: 'var(--preBold20)', marginBottom: 16 }}>더미데이터 삽입 완료</p>
+              <p style={{ font: 'var(--preBold20)', marginBottom: 16 }}>더미데이터 생성 완료</p>
               <p style={{ marginBottom: 20 }}>
                 전체 {totalCount.toLocaleString()}개 중 {insertedCount.toLocaleString()}개 완료
               </p>
