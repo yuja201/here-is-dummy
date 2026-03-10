@@ -8,6 +8,8 @@ const LOCALE_FAKERS = {
   ko: fakerKO
 } as const
 
+type FakerOptions = Record<string, unknown> | undefined
+
 /**
  * Faker 생성 요청 파라미터
  */
@@ -98,37 +100,66 @@ export async function* generateFakeStream({
   if (!fakerPath) {
     throw new Error(`No faker mapping for domain: ${domainName}`)
   }
-
-  const [category, method] = fakerPath.split('.') as [keyof Faker, string]
+  const [category, method, optionName, optionValue] = fakerPath.split('.') as [
+    keyof Faker,
+    string,
+    string?,
+    string?
+  ]
   const fakerCategory = faker[category]
+
+  if (!fakerCategory) {
+    throw new Error(`❌ Invalid faker path: ${fakerPath}`)
+  }
+
   const fn = (fakerCategory as Record<string, unknown>)[method]
 
   if (typeof fn !== 'function') {
     throw new Error(`❌ Invalid faker path: ${fakerPath}`)
   }
 
+  let opts: FakerOptions = undefined
+
+  if (optionName && optionValue) {
+    const parsedValue = Number(optionValue)
+    opts = {
+      [optionName]: Number.isNaN(parsedValue) ? optionValue : parsedValue
+    }
+  }
+
   // 단일 값을 생성하는 헬퍼 함수
   const generateSingleValue = (): string => {
-    // 숫자 범위 제약 적용
-    if (
-      typeof min === 'number' &&
-      typeof max === 'number' &&
-      /INT|DECIMAL|NUMERIC|FLOAT|DOUBLE/i.test(sqlType)
-    ) {
-      return String(
-        (fn as (opts: { min: number; max: number }) => number)({
-          min,
-          max
-        })
-      )
+    const callOpts: Record<string, unknown> = { ...(opts ?? {}) }
+
+    // 숫자 범위 제약
+    if (/INT|DECIMAL|NUMERIC|FLOAT|DOUBLE/i.test(sqlType)) {
+      if (typeof min === 'number') callOpts.min = min
+      if (typeof max === 'number') callOpts.max = max
     }
-    // 문자열 길이 제약 적용
+
+    const raw = Object.keys(callOpts).length > 0 ? fn(callOpts) : fn()
+
+    // 날짜 처리
+    if (/DATE|DATETIME|TIMESTAMP/i.test(sqlType)) {
+      if (raw instanceof Date) {
+        const iso = raw.toISOString()
+
+        if (/^DATE$/i.test(sqlType)) {
+          return iso.slice(0, 10)
+        }
+
+        return iso.slice(0, 19).replace('T', ' ')
+      }
+
+      return String(raw)
+    }
+
+    // 문자열 길이
     if (typeof maxLength === 'number') {
-      const raw = String((fn as () => string)())
-      return raw.slice(0, maxLength)
+      return String(raw).slice(0, maxLength)
     }
-    // 제약조건 없음
-    return String((fn as () => string | number)())
+
+    return String(raw)
   }
 
   // 고유값 보장이 필요 없는 경우
