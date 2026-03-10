@@ -459,13 +459,11 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
               `[행 변환 오류] ${tableName} ${totalProcessed + rowIdx + 1}행 변환 실패`
             )
           }
+        } else if (!directMode) {
+          totalProcessed++
         }
 
         rows.push(`(${rowValues.join(', ')})`)
-
-        if (!directMode) {
-          totalProcessed++
-        }
       }
 
       // === DIRECT_DB bulk insert + fallback ===

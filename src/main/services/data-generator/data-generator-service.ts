@@ -59,6 +59,9 @@ export async function runDataGenerator(
     }
   }
 
+  let successRows = 0
+  let failedRows = 0
+
   const rules = Array.from(ruleIds)
     .map((id) => getRuleById(id))
     .filter((rule): rule is NonNullable<typeof rule> => Boolean(rule))
@@ -140,6 +143,10 @@ export async function runDataGenerator(
             progressRows += data.progress
             const progress = Math.floor((progressRows / totalRows) * 100)
             data.progress = progress
+            mainWindow.webContents.send('data-generator:progress', data)
+          } else if (data.type === 'table-complete') {
+            successRows += data.successRows
+            failedRows += data.failedRows
             mainWindow.webContents.send('data-generator:progress', data)
           } else {
             mainWindow.webContents.send('data-generator:progress', data)
@@ -226,7 +233,10 @@ export async function runDataGenerator(
   mainWindow.webContents.send('data-generator:progress', {
     type: 'all-complete',
     successCount: successResults.length,
-    failCount: failedResults.length
+    failCount: failedResults.length,
+    successRows: successRows,
+    failedRows: failedRows,
+    totalRows: totalRows
   })
 
   const allErrors = failedResults.map((r) => `[${r.tableName}] ${r.error ?? 'Unknown error'}`)
