@@ -59,6 +59,10 @@ export async function runDataGenerator(
     }
   }
 
+  if (totalRows === 0) {
+    throw new Error('Total row count is 0. No data to generate.')
+  }
+
   let successRows = 0
   let failedRows = 0
 
