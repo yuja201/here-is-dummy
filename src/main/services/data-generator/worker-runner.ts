@@ -26,7 +26,10 @@ const logger = createLogger('worker-runner')
 const INVALID = { __invalid: true } as const
 type CellValue = string | typeof INVALID
 
-// 컬럼별 스트림 생성 함수
+/**
+ * 컬럼 설정에 따라 데이터 생성 스트림을 반환
+ * (FAKER, AI, FILE, FIXED, REFERENCE)
+ */
 function createColumnStream(
   col: {
     columnName: string
@@ -146,7 +149,9 @@ function createColumnStream(
   }
 }
 
-// AI 컬럼과 non-AI 컬럼 분리
+/**
+ * 컬럼 목록을 AI / non-AI 인덱스로 분리
+ */
 function separateColumnsByType(columns: { dataSource: DataSourceType }[]): {
   aiColumns: number[]
   nonAiColumns: number[]
@@ -280,6 +285,9 @@ type DirectContext = {
   close: () => Promise<void>
 }
 
+/**
+ * DIRECT_DB 모드에서 사용할 DB 연결 컨텍스트 생성
+ */
 async function createDirectContext(
   dbType: keyof typeof DBMS_MAP,
   connection: NonNullable<WorkerTask['connection']>
@@ -322,6 +330,12 @@ async function createDirectContext(
   }
 }
 
+/**
+ * 테이블 단위 데이터 생성 Worker
+ * - 컬럼 스트림 생성
+ * - 행 조립
+ * - SQL 파일 생성 또는 DB 삽입
+ */
 async function runWorker(task: WorkerTask): Promise<WorkerResult> {
   const { table, dbType, mode, connection } = task
   const { tableName, recordCnt, columns } = table

@@ -15,6 +15,12 @@ import { createLogger } from '../../utils/logger'
 const logger = createLogger('data-generator-service')
 const MAX_PARALLEL = Math.max(1, Math.floor(os.cpus().length / 2))
 
+/**
+ * 데이터 생성 전체 흐름을 관리하는 메인 함수
+ * - Worker 실행
+ * - 진행률 전달
+ * - SQL ZIP 생성
+ */
 export async function runDataGenerator(
   payload: GenerateRequest,
   mainWindow: BrowserWindow
@@ -96,6 +102,9 @@ export async function runDataGenerator(
   const results: WorkerResult[] = []
   const cacheRoot = getFileCacheRoot()
 
+  /**
+   * 다음 테이블 작업을 Worker로 실행
+   */
   const startNext = async (): Promise<void> => {
     try {
       if (queue.length === 0) return
@@ -255,6 +264,9 @@ export async function runDataGenerator(
   }
 }
 
+/**
+ * DB URL에서 host와 port 추출
+ */
 function parseDatabaseUrl(rawUrl: string, dbType: SupportedDBMS): { host: string; port: number } {
   const defaultPort = dbType === 'mysql' ? 3306 : 5432
 
@@ -283,7 +295,9 @@ function parseDatabaseUrl(rawUrl: string, dbType: SupportedDBMS): { host: string
   }
 }
 
-// 재시도 기반 파일 삭제
+/**
+ * 파일 잠금 시 재시도하며 삭제
+ */
 async function deleteWithRetry(filePath: string, maxRetries = 3, delayMs = 500): Promise<void> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
