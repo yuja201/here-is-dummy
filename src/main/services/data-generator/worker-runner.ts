@@ -348,7 +348,7 @@ async function runWorker(task: WorkerTask): Promise<WorkerResult> {
 
   const { quote } = DBMS_MAP[dbType]
   const columnNames = columns.map((c) => `${quote}${c.columnName}${quote}`).join(', ')
-  const CHUNK_SIZE = 500
+  const CHUNK_SIZE = Math.max(1000, Math.floor(recordCnt / 100))
   const MAX_AI_CONCURRENT = 2
   let totalFailed = 0
 
